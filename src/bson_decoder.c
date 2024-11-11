@@ -421,6 +421,7 @@ ERL_NIF_TERM decode_iter(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
         return enif_make_badarg(env);
     }
 
+    d->env = env;
     d->arg = argv[0];
     ERL_NIF_TERM objs = argv[2];
     ERL_NIF_TERM curr = argv[3];

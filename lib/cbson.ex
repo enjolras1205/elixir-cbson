@@ -2,7 +2,7 @@ defmodule CBson do
   @on_load {:init, 0}
 
   def init do
-    path = :filename.join(:code.priv_dir(:cbson), 'bson_nif')
+    path = :filename.join(:code.priv_dir(:cbson), "bson_nif")
     :ok = :erlang.load_nif(path, 0)
   end
 
@@ -93,11 +93,11 @@ defmodule CBson do
   def nif_bin2objectid(_bin) do
     exit(:nif_library_not_loaded)
   end
-  
+
   def nif_b64encode(_bin) do
     exit(:nif_library_not_loaded)
   end
-  
+
   def nif_split_by_char(_bin, _c, _start) do
     exit(:nif_library_not_loaded)
   end

@@ -228,6 +228,23 @@ defmodule CBsonTest do
     :timer.sleep(120_000)
   end
 
+  # 需要运行一段时间没有coredump
+  # @tag :long_term_test
+  test "encode large int" do
+    big_int = 11_111_111_111_111_111_111_111_111_111_111_111_111_111_111_111_111
+
+    for v <- 1..1000000 do
+      try do
+        CBson.encode(%{big_int: big_int + v})
+      catch _, {:error, {:error_term, _}} ->
+        :ok
+      end
+    end
+
+    :erlang.garbage_collect(self())
+  end
+
+
   defp deep(0, acc) do
     acc
   end

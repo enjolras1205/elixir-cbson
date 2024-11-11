@@ -338,10 +338,8 @@ Encoder* enc_new(ErlNifEnv* env) {
     return e;
 }
 
-void enc_destroy(ErlNifEnv* env, void* obj) {
-    int i; 
-    Encoder* e = (Encoder*)obj;
-
+void enc_destroy_stack(ErlNifEnv* env, Encoder *e) {
+    int i = 0;
     if(e->st_data != NULL) {
         for(i = 0; i < e->st_top; i++) {
             Stack* st = e->st_data + i;
@@ -351,6 +349,14 @@ void enc_destroy(ErlNifEnv* env, void* obj) {
         }
         enif_free(e->st_data);
     }
+    e->st_data = NULL;
+}
+
+void enc_destroy(ErlNifEnv* env, void* obj) {
+    int i; 
+    Encoder* e = (Encoder*)obj;
+
+    enc_destroy_stack(env, e);
     if(e->bin != NULL) {
         for(i = 0; i < e->bin_top; i++) {
             enif_release_binary(e->bin + i);
@@ -469,6 +475,7 @@ ERL_NIF_TERM encode_iter(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
 
     // should yield 注释了．start 暂时不用
     // int start = enc_write_len(e);
+    e->env = env;
     enc_write_len(e);
 
     const ERL_NIF_TERM* tuple;
@@ -668,6 +675,7 @@ encode_done:
     ret = make_result(env, e);
 
 done:
+    enc_destroy_stack(env, e);
     return ret;
 }
 

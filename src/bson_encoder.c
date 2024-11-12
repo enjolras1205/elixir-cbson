@@ -15,7 +15,8 @@
 
 typedef struct { 
     int32_t status; // negative: doc, nonnegative: index of array
-    int32_t* ptr; // The pointer of length;
+    int32_t bin_offset; // 写入长度的bin offset
+    int32_t length_offset; // bin->data　中长度的　offset
     int32_t written;
     ErlNifMapIterator iter;
 } Stack;
@@ -37,6 +38,10 @@ typedef struct {
     int bin_size;
     int i;
 } Encoder;
+
+static inline char check_ename(Encoder* e, unsigned char* bin, int32_t size) {
+    return memchr(bin, 0x0, size) == NULL;
+}
 
 static Stack* enc_curr(Encoder*);
 
@@ -131,7 +136,7 @@ int enc_atom(Encoder* e, ERL_NIF_TERM val) {
     return 1;
 }
 
-static 
+static
 int enc_ename(Encoder* e, ERL_NIF_TERM val) {
     char atom[512];
     ErlNifBinary bin;
@@ -140,6 +145,9 @@ int enc_ename(Encoder* e, ERL_NIF_TERM val) {
         if(!enif_inspect_binary(e->env, val, &bin)) {
             return 0;
         }
+        if(!check_ename(e, bin.data, bin.size)) {
+            return 0;
+        };
         enc_write_bin(e, bin.data, bin.size);
         enc_write_uint8(e, 0x0);
     } else if(enif_is_atom(e->env, val)) {
@@ -147,6 +155,9 @@ int enc_ename(Encoder* e, ERL_NIF_TERM val) {
             return 0;
         }
         int32_t size = strlen(atom);
+        if(!check_ename(e, (unsigned char*) atom, size)) {
+            return 0;
+        };
         enc_write_bin(e, (unsigned char*) atom, size);
         enc_write_uint8(e, 0x0);
     } else {
@@ -255,7 +266,7 @@ Stack* enc_curr(Encoder* e) {
 }
 
 static
-int32_t * enc_push(Encoder* e, int32_t status) {
+void enc_push(Encoder* e, int32_t status) {
     Stack* st;
 
     if(e->st_top >= e->st_size) {
@@ -272,18 +283,22 @@ int32_t * enc_push(Encoder* e, int32_t status) {
     st->written = 0;
     e->st_top++;
     
-    st->ptr = (int32_t*)enc_skip_len(e, sizeof(int32_t));
-    return st->ptr;
+    enc_skip_len(e, sizeof(int32_t));
+    st->length_offset = e->i - sizeof(int32_t);
+    st->bin_offset = e->bin_top - 1;
 }
 
 static 
 void enc_pop(Encoder* e) {
     Stack* st = e->st_data + e->st_top - 1;
     int32_t written = st->written;
-    *(st->ptr) = written;
+    ErlNifBinary *bin = e->bin + st->bin_offset;
+    int32_t *bin_length_mem = (int32_t*)(bin->data + st->length_offset);
+    *(bin_length_mem) = written;
 
     st->status = STACK_TYPE_UNDEFINED; 
-    st->ptr = 0; 
+    st->length_offset = -1;
+    st->bin_offset = -1;
     st->written = 0;
     e->st_top--;
    
@@ -323,10 +338,8 @@ Encoder* enc_new(ErlNifEnv* env) {
     return e;
 }
 
-void enc_destroy(ErlNifEnv* env, void* obj) {
-    int i; 
-    Encoder* e = (Encoder*)obj;
-
+void enc_destroy_stack(ErlNifEnv* env, Encoder *e) {
+    int i = 0;
     if(e->st_data != NULL) {
         for(i = 0; i < e->st_top; i++) {
             Stack* st = e->st_data + i;
@@ -336,6 +349,14 @@ void enc_destroy(ErlNifEnv* env, void* obj) {
         }
         enif_free(e->st_data);
     }
+    e->st_data = NULL;
+}
+
+void enc_destroy(ErlNifEnv* env, void* obj) {
+    int i; 
+    Encoder* e = (Encoder*)obj;
+
+    enc_destroy_stack(env, e);
     if(e->bin != NULL) {
         for(i = 0; i < e->bin_top; i++) {
             enif_release_binary(e->bin + i);
@@ -452,7 +473,10 @@ ERL_NIF_TERM encode_iter(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
     ERL_NIF_TERM stack = argv[1];
     ERL_NIF_TERM curr, key, value, ret;
 
-    int start = enc_write_len(e);
+    // should yield 注释了．start 暂时不用
+    // int start = enc_write_len(e);
+    e->env = env;
+    enc_write_len(e);
 
     const ERL_NIF_TERM* tuple;
     int arity;
@@ -525,7 +549,7 @@ next:
             
             ptr = enc_skip_len(e, sizeof(unsigned char));
             if(!enc_ename(e, key)) {
-                ret = enc_obj_error(e, "invalid_string", key);
+                ret = enc_obj_error(e, "invalid_key", key);
                 goto done;
             }
         }
@@ -651,6 +675,7 @@ encode_done:
     ret = make_result(env, e);
 
 done:
+    enc_destroy_stack(env, e);
     return ret;
 }
 
